@@ -11,6 +11,7 @@ from kiutra_api.controller_interfaces import (
 from kiutra_api.device_interfaces import Magnet
 from qcodes.instrument import Instrument
 from qcodes.validators import Numbers
+from time import sleep
 
 
 class Kiutra(Instrument):
@@ -127,3 +128,44 @@ class Kiutra(Instrument):
         )
         while not self.MagnetControl.stable:
             sleep(1)
+
+    def stabilize_at_temperature(
+            self,
+            setpoint_temperature: float,
+            user_temp_ramp_rate: float | None = None,
+    )-> None:
+        temp_now = self.sample_stage_temperature()
+        ramp_rate = self.check_temp_ramp_rate(user_temp_ramp_rate,setpoint_temperature)
+
+        print(f"Ramping to {setpoint_temperature} K at {ramp_rate} K/min")
+        self.TemperatureControl.start_proposed_mode(setpoint_temperature, ramp_rate, "stabilize", temp_now)
+        while not self.TemperatureControl.stable:
+            sleep(1)  # wait for the temperature to stabilize
+
+    def get_temp_ramp_rate(temp_1 : float, temp_2 : float):
+        min_temp = min(temp_1, temp_2)
+
+        if min_temp <= 0.3:
+            ramp_rate = 0.05
+        elif min_temp <= 0.5:
+            ramp_rate = 0.10
+        elif min_temp <= 1.0:
+            ramp_rate = 0.15
+        elif min_temp <= 4.0:
+            ramp_rate = 0.20
+        elif min_temp <= 20.0:
+            ramp_rate = 0.25
+
+        return ramp_rate
+    
+    def check_temp_ramp_rate(self,user_set_rate : float,setpoint_temperature : float) -> float| None:
+        temp_now = self.sample_stage_temperature()
+        default_ramp_rate = self.get_temp_ramp_rate(temp_now, setpoint_temperature)
+
+        if user_set_rate is not None:
+            if user_set_rate > default_ramp_rate:
+                raise ValueError(f"Set ramp rate exceeds reccommended value of {default_ramp_rate} K/min")
+            else:
+                return user_set_rate
+        else:
+            return default_ramp_rate
