@@ -10,7 +10,6 @@ from kiutra_api.controller_interfaces import (
 )
 from kiutra_api.device_interfaces import Magnet
 from qcodes.instrument import Instrument
-from qcodes.parameters import Parameter
 
 
 class Kiutra(Instrument):
@@ -19,27 +18,27 @@ class Kiutra(Instrument):
             name, metadata={}, label="kiutra"
         )  # Calls Instrument.__init__(name)
 
-        self.CryostatControl = CryostatControl(
+        self.cryostat_control = CryostatControl(
             device="cryostat",
             host=host_ip_address,
         )
-        self.SampleControl = SampleControl(
+        self.sample_control = SampleControl(
             device="sample_loader",
             host=host_ip_address,
         )
-        self.TemperatureControl = TemperatureControl(
+        self.temperature_control = TemperatureControl(
             device="temperature_control",
             host=host_ip_address,
         )
-        self.ADRControl = ADRControl(
+        self.adr_control = ADRControl(
             device="adr_control",
             host=host_ip_address,
         )
-        self.HeaterControl = HeaterControl(
+        self.heater_control = HeaterControl(
             device="sample_heater",
             host=host_ip_address,
         )
-        self.MagnetControl = MagnetControl(
+        self.magnet_control = MagnetControl(
             device="sample_magnet",
             host=host_ip_address,
         )
@@ -105,7 +104,7 @@ class Kiutra(Instrument):
         )
 
     def get_magnetic_field_ramp_rate(self) -> float:
-        """We choose a magnetic field ramp rate based on the reccommedantion from Kiutra Operator's Manuak p.30.
+        """We choose a magnetic field ramp rate based on the reccommedantion from Kiutra Operator's Manual p.30.
         Ramp rate is in Tesla/minute."""
 
         if self.sample_stage_temperature() < 1:
@@ -195,3 +194,10 @@ class Kiutra(Instrument):
             )
 
         return ramp_rate
+
+    def check_temp_control(self) ->None:
+
+        if self.TemperatureControl.stable:
+            pass
+        else:
+            raise RuntimeError("Temperature control is not stable. Either abort command or reset temp control from the GUI.")
