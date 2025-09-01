@@ -10,14 +10,14 @@ from kiutra_api.controller_interfaces import (
 )
 from kiutra_api.device_interfaces import Magnet
 from qcodes.instrument import Instrument
-from qcodes.validators import Numbers
-from time import sleep
+from qcodes.parameters import Parameter
 
 
 class Kiutra(Instrument):
-    def __init__(self, name: str,mag_field_limit:float, host_ip_address: str,**kwargs) -> None:
-        super().__init__(name, **kwargs)
-        self.host = host_ip_address
+    def __init__(self, name: str, host_ip_address: str) -> None:
+        super().__init__(
+            name, metadata={}, label="kiutra"
+        )  # Calls Instrument.__init__(name)
 
         self.CryostatControl = CryostatControl(
             device="cryostat",
@@ -130,19 +130,53 @@ class Kiutra(Instrument):
             sleep(1)
 
     def stabilize_at_temperature(
-            self,
-            setpoint_temperature: float,
-            user_temp_ramp_rate: float | None = None,
-    )-> None:
+        self,
+        setpoint_temperature: float,
+        user_temp_ramp_rate: float | None = None,
+    ) -> None:
         temp_now = self.sample_stage_temperature()
-        ramp_rate = self.check_temp_ramp_rate(user_temp_ramp_rate,setpoint_temperature)
+        ramp_rate = self.check_temp_ramp_rate(user_temp_ramp_rate, setpoint_temperature)
 
-        print(f"Ramping to {setpoint_temperature} K at {ramp_rate} K/min")
-        self.TemperatureControl.start_proposed_mode(setpoint_temperature, ramp_rate, "stabilize", temp_now)
+        print(f"Stabilizing at {setpoint_temperature} K at {ramp_rate} K/min")
+        self.TemperatureControl.start_proposed_mode(
+            setpoint=setpoint_temperature,
+            ramp=ramp_rate,
+            mode="stabilize",
+            start_temperature=temp_now,
+        )
         while not self.TemperatureControl.stable:
-            sleep(1)  # wait for the temperature to stabilize
+            sleep(1)
 
-    def get_temp_ramp_rate(temp_1 : float, temp_2 : float):
+    def ramp_temperature(self, start: float, stop: float) -> None:
+        """Before sending other commands to the Kiutra, it is good practice
+        to let the system complete the previous command. To ensure this,
+        one should verify that the temperature is stable also at the end of this process."""
+
+        self.stabilize_at_temperature(setpoint_temperature=start)
+
+        rate = self.get_temp_ramp_rate(start, stop)
+        print(f"Ramping to {stop} K at {rate} K/min")
+        self.TemperatureControl.start_proposed_mode(
+            setpoint=stop, ramp=rate, mode="ramp", start_temperature=start
+        )
+
+    def check_temp_ramp_rate(
+        self, user_set_rate: float | None, setpoint_temperature: float
+    ) -> float | None:
+        temp_now = self.sample_stage_temperature()
+        default_ramp_rate = self.get_temp_ramp_rate(temp_now, setpoint_temperature)
+
+        if user_set_rate is not None:
+            if user_set_rate >= default_ramp_rate:
+                raise ValueError(
+                    f"Set ramp rate exceeds reccommended value of {default_ramp_rate} K/min"
+                )
+            else:
+                return user_set_rate
+        else:
+            return default_ramp_rate
+
+    def get_temp_ramp_rate(self, temp_1: float, temp_2: float) -> float:
         min_temp = min(temp_1, temp_2)
 
         if min_temp <= 0.3:
@@ -155,17 +189,9 @@ class Kiutra(Instrument):
             ramp_rate = 0.20
         elif min_temp <= 20.0:
             ramp_rate = 0.25
+        else:
+            raise ValueError(
+                "Temperature ramp rate is not defined for temperatures above 20K."
+            )
 
         return ramp_rate
-    
-    def check_temp_ramp_rate(self,user_set_rate : float,setpoint_temperature : float) -> float| None:
-        temp_now = self.sample_stage_temperature()
-        default_ramp_rate = self.get_temp_ramp_rate(temp_now, setpoint_temperature)
-
-        if user_set_rate is not None:
-            if user_set_rate > default_ramp_rate:
-                raise ValueError(f"Set ramp rate exceeds reccommended value of {default_ramp_rate} K/min")
-            else:
-                return user_set_rate
-        else:
-            return default_ramp_rate
